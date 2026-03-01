@@ -1,0 +1,59 @@
+{% set is_new = last_run and listing.first_seen_at > last_run.started_at %}
+<div class="listing-card relative bg-white border rounded-lg overflow-hidden shadow-sm transition-all duration-500
+            {% if is_new %}border-green-400 bg-green-50{% else %}border-gray-200{% endif %}">
+
+  {# Remove button #}
+  <button
+    hx-delete="/api/listings/{{ listing.id }}"
+    hx-target="closest .listing-card"
+    hx-swap="outerHTML swap:500ms"
+    hx-confirm="Remove this listing?"
+    class="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition-colors"
+    title="Remove listing">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+    </svg>
+  </button>
+
+  {# Image #}
+  <a href="{{ listing.url }}" target="_blank" rel="noopener">
+    <img
+      src="{{ listing.image_url or '/static/img/no-image.svg' }}"
+      onerror="this.src='/static/img/no-image.svg'"
+      alt="{{ listing.title }}"
+      class="w-full h-36 object-cover bg-gray-100" />
+  </a>
+
+  <div class="p-3 space-y-1">
+    {# Source badge #}
+    <div class="flex items-center justify-between">
+      <span class="text-xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded
+                   bg-indigo-100 text-indigo-700">{{ listing.source }}</span>
+      {% if is_new %}
+      <span class="text-xs font-semibold text-green-600">NEW</span>
+      {% endif %}
+    </div>
+
+    {# Title #}
+    <a href="{{ listing.url }}" target="_blank" rel="noopener"
+       class="block text-sm font-medium text-gray-900 hover:text-blue-700 leading-snug line-clamp-2">
+      {{ listing.title or "Untitled" }}
+    </a>
+
+    {# Price #}
+    {% if listing.price_amount %}
+    <p class="text-base font-semibold text-gray-800">
+      {{ listing.currency or "" }} {{ "{:,.0f}".format(listing.price_amount) }}
+    </p>
+    {% endif %}
+
+    {# Condition + Location #}
+    <div class="flex flex-wrap gap-x-3 text-xs text-gray-500">
+      {% if listing.condition %}<span>{{ listing.condition }}</span>{% endif %}
+      {% if listing.seller_location %}<span>{{ listing.seller_location }}</span>{% endif %}
+    </div>
+
+    {# First seen #}
+    <p class="text-xs text-gray-400">First seen {{ listing.first_seen_at.strftime("%b %d, %Y") }}</p>
+  </div>
+</div>

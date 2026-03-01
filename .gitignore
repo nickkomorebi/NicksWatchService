@@ -1,0 +1,32 @@
+# Environment & secrets
+.env
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+*.egg
+
+# Data
+data/
+
+# Alembic (keep versions, ignore auto-generated cruft)
+alembic/__pycache__/
+
+# Playwright
+.playwright/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+*.log

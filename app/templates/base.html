@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}NicksWatchService{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2uodhrgzmkvbZci3YKgWl9Cd8i+dhMSVMzw" crossorigin="anonymous"></script>
+  <style>
+    .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
+    .htmx-request .htmx-indicator { opacity: 1; }
+    .htmx-request.htmx-indicator { opacity: 1; }
+  </style>
+</head>
+<body class="h-full">
+
+  <nav class="bg-gray-900 text-white shadow">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-14">
+      <a href="/" class="text-lg font-semibold tracking-tight">⌚ NicksWatchService</a>
+      <div class="flex items-center gap-6 text-sm">
+        <a href="/" class="hover:text-gray-300">Listings</a>
+        <a href="/runs" class="hover:text-gray-300">Run History</a>
+        <button
+          hx-post="/api/runs/trigger"
+          hx-headers='{"X-Run-Token": "{{ run_token }}"}'
+          hx-target="#run-status-banner"
+          hx-swap="outerHTML"
+          hx-indicator="#run-spinner"
+          class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-3 py-1.5 rounded">
+          Run Now
+        </button>
+        <span id="run-spinner" class="htmx-indicator text-gray-400 text-xs">running…</span>
+      </div>
+    </div>
+  </nav>
+
+  <div id="run-status-banner"
+       hx-get="/partials/run-status"
+       hx-trigger="load, every 5s"
+       hx-swap="outerHTML">
+  </div>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    // Expose run token for HTMX buttons set via Jinja
+    const RUN_TOKEN = "{{ run_token }}";
+  </script>
+</body>
+</html>

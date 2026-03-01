@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Listings — NicksWatchService{% endblock %}
+
+{% block content %}
+
+{% if not watch_listings %}
+  <div class="text-center py-20 text-gray-500">
+    <p class="text-xl font-medium">No watches configured yet.</p>
+    <p class="text-sm mt-2">Add watches to your Google Sheet and click <strong>Run Now</strong>.</p>
+  </div>
+{% endif %}
+
+{% for watch, listings in watch_listings %}
+<section class="mb-10">
+  <div class="flex items-baseline gap-3 mb-3">
+    <h2 class="text-xl font-bold text-gray-900">{{ watch.brand }} {{ watch.model }}</h2>
+    {% if watch.references_csv %}
+    <span class="text-sm text-gray-500">{{ watch.references_csv }}</span>
+    {% endif %}
+    <span class="ml-auto text-sm text-gray-400">{{ listings | length }} listing(s)</span>
+  </div>
+
+  {% if not listings %}
+  <p class="text-sm text-gray-400 italic">No active listings found yet.</p>
+  {% else %}
+  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+    {% for listing in listings %}
+    {% include "partials/listing_card.html" %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+
+{% endblock %}

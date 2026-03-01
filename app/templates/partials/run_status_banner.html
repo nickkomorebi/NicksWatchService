@@ -1,0 +1,24 @@
+{% if run and run.status == "running" %}
+<div id="run-status-banner"
+     hx-get="/api/runs/latest"
+     hx-trigger="every 5s"
+     hx-swap="outerHTML"
+     class="bg-blue-50 border-b border-blue-200 px-4 py-2 text-sm text-blue-800 flex items-center gap-2">
+  <svg class="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+  </svg>
+  Run #{{ run.id }} is in progress (triggered by {{ run.triggered_by or "scheduler" }})…
+</div>
+{% elif run and run.status == "succeeded" %}
+<div id="run-status-banner" class="bg-green-50 border-b border-green-200 px-4 py-2 text-sm text-green-800">
+  Run #{{ run.id }} succeeded — {{ run.listings_new }} new listing(s) found
+  <span class="text-gray-400 ml-2">{{ run.finished_at.strftime("%Y-%m-%d %H:%M") if run.finished_at else "" }}</span>
+</div>
+{% elif run and run.status == "failed" %}
+<div id="run-status-banner" class="bg-red-50 border-b border-red-200 px-4 py-2 text-sm text-red-800">
+  Run #{{ run.id }} failed: {{ run.error_summary }}
+</div>
+{% else %}
+<div id="run-status-banner" class="hidden"></div>
+{% endif %}

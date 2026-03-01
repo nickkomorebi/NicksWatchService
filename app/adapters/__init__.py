@@ -1,0 +1,15 @@
+from app.adapters.chrono24 import Chrono24Adapter
+from app.adapters.ebay import EbayAdapter
+from app.adapters.mercari_jp import MercariJpAdapter
+from app.adapters.web_search import WebSearchAdapter
+from app.adapters.web_search_recent import WebSearchRecentAdapter
+from app.adapters.yahoo_jp import YahooJpAdapter
+
+ALL_ADAPTERS = [
+    WebSearchAdapter(),
+    WebSearchRecentAdapter(),
+    EbayAdapter(),
+    Chrono24Adapter(),
+    MercariJpAdapter(),
+    YahooJpAdapter(),
+]
