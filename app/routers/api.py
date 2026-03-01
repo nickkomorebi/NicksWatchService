@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -31,6 +31,20 @@ async def trigger_run(db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Run {running.id} is already in progress",
         )
+
+    # Check if a successful run completed within the last 24 hours
+    stmt = select(Run).where(Run.status == "succeeded").order_by(Run.id.desc()).limit(1)
+    result = await db.execute(stmt)
+    recent = result.scalar_one_or_none()
+    if recent and recent.finished_at:
+        finished = recent.finished_at.replace(tzinfo=timezone.utc) if recent.finished_at.tzinfo is None else recent.finished_at
+        age = datetime.now(timezone.utc) - finished
+        if age < timedelta(hours=24):
+            next_run = finished + timedelta(hours=24)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"A run completed at {finished.strftime('%Y-%m-%d %H:%M')} UTC. Next manual run allowed after {next_run.strftime('%Y-%m-%d %H:%M')} UTC.",
+            )
 
     # Create a placeholder run row so the UI sees it immediately
     run = Run(status="running", triggered_by="manual")
