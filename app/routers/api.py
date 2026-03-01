@@ -39,8 +39,8 @@ async def trigger_run(db: AsyncSession = Depends(get_db)):
     if recent and recent.finished_at:
         finished = recent.finished_at.replace(tzinfo=timezone.utc) if recent.finished_at.tzinfo is None else recent.finished_at
         age = datetime.now(timezone.utc) - finished
-        if age < timedelta(hours=24):
-            next_run = finished + timedelta(hours=24)
+        if age < timedelta(hours=6):
+            next_run = finished + timedelta(hours=6)
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"A run completed at {finished.strftime('%Y-%m-%d %H:%M')} UTC. Next manual run allowed after {next_run.strftime('%Y-%m-%d %H:%M')} UTC.",

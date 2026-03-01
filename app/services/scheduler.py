@@ -24,18 +24,13 @@ def start_scheduler() -> None:
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
         _run_job_sync,
-        trigger="cron",
-        hour=settings.schedule_hour,
-        minute=settings.schedule_minute,
-        id="daily_watch_search",
+        trigger="interval",
+        hours=settings.schedule_interval_hours,
+        id="watch_search",
         replace_existing=True,
     )
     _scheduler.start()
-    logger.info(
-        "Scheduler started — daily job at %02d:%02d",
-        settings.schedule_hour,
-        settings.schedule_minute,
-    )
+    logger.info("Scheduler started — job runs every %d hours", settings.schedule_interval_hours)
 
 
 def shutdown_scheduler() -> None:

@@ -25,8 +25,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
 
     # Scheduler
-    schedule_hour: int = 8
-    schedule_minute: int = 0
+    schedule_interval_hours: int = 6
 
     # App
     app_port: int = 8000
