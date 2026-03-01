@@ -1,4 +1,4 @@
-from app.adapters.chrono24 import Chrono24Adapter
+from app.adapters.chrono24_web import Chrono24WebAdapter
 from app.adapters.ebay import EbayAdapter
 from app.adapters.mercari_jp import MercariJpAdapter
 from app.adapters.web_search import WebSearchAdapter
@@ -9,7 +9,7 @@ ALL_ADAPTERS = [
     WebSearchAdapter(),
     WebSearchRecentAdapter(),
     EbayAdapter(),
-    Chrono24Adapter(),
+    Chrono24WebAdapter(),
     MercariJpAdapter(),
     YahooJpAdapter(),
 ]

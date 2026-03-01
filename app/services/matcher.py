@@ -92,7 +92,11 @@ def is_match(raw: RawListing, watch: "Watch") -> Literal["yes", "no", "ambiguous
     if raw.source in WEB_SEARCH_SOURCES and _is_article(raw):
         return "no"
 
-    text = (raw.title or "").lower()
+    # Normalize hyphens → spaces so "Jaeger-LeCoultre" matches "Jaeger LeCoultre"
+    raw_text = (raw.title or "").lower().replace("-", " ")
+    # Use normalized text for all keyword checks; original for forbidden (to avoid
+    # accidentally un-forbidding multi-word phrases that cross a hyphen boundary)
+    text = raw_text
 
     forbidden = list(ALWAYS_FORBIDDEN)
     try:
@@ -100,20 +104,20 @@ def is_match(raw: RawListing, watch: "Watch") -> Literal["yes", "no", "ambiguous
     except json.JSONDecodeError:
         pass
 
-    if any(kw.lower() in text for kw in forbidden):
+    if any(kw.lower().replace("-", " ") in text for kw in forbidden):
         return "no"
 
     refs = [r.strip() for r in (watch.references_csv or "").split(",") if r.strip()]
-    has_ref = any(ref.lower() in text for ref in refs)
+    has_ref = any(ref.lower().replace("-", " ") in text for ref in refs)
 
-    has_brand = watch.brand.lower() in text
-    has_model = watch.model.lower() in text
+    has_brand = watch.brand.lower().replace("-", " ") in text
+    has_model = watch.model.lower().replace("-", " ") in text
 
     try:
         required = json.loads(watch.required_keywords or "[]")
     except json.JSONDecodeError:
         required = []
-    has_required = all(kw.lower() in text for kw in required) if required else True
+    has_required = all(kw.lower().replace("-", " ") in text for kw in required) if required else True
 
     if has_ref or (has_brand and has_model and has_required):
         return "yes"
