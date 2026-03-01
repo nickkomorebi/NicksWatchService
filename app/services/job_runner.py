@@ -140,6 +140,17 @@ async def _process_adapter(
                 confidence_score = 0.5
                 confidence_rationale = f"LLM error: {exc}"
 
+        # Fetch image for sources that don't provide one
+        if not raw.image_url and raw.url:
+            from app.services.image_fetcher import fetch_listing_image, verify_watch_image
+            candidate = await fetch_listing_image(raw.url)
+            if candidate:
+                if await verify_watch_image(candidate):
+                    raw.image_url = candidate
+                    logger.debug("Fetched image for %s: %s", raw.title, candidate)
+                else:
+                    logger.debug("Image failed watch check for %s", raw.title)
+
         found += 1
         is_new = await _upsert_listing(db, raw, watch, confidence_score, confidence_rationale, run_seen_hashes)
         if is_new:
@@ -254,6 +265,28 @@ async def run_job(triggered_by: str = "scheduler", existing_run_id: int | None =
                 f, n = r
                 total_found += f
                 total_new += n
+
+        # Backfill images for active listings that still have none
+        from app.services.image_fetcher import fetch_listing_image, verify_watch_image
+        async with AsyncSessionLocal() as db:
+            stmt = select(Listing).where(
+                Listing.is_active == True,  # noqa: E712
+                Listing.removed_at == None,  # noqa: E711
+                Listing.image_url == None,  # noqa: E711
+                Listing.url != None,  # noqa: E711
+            )
+            result = await db.execute(stmt)
+            imageless = result.scalars().all()
+            if imageless:
+                logger.info("Backfilling images for %d listings", len(imageless))
+
+            async def _backfill(listing: Listing):
+                candidate = await fetch_listing_image(listing.url)
+                if candidate and await verify_watch_image(candidate):
+                    listing.image_url = candidate
+
+            await asyncio.gather(*[_backfill(l) for l in imageless], return_exceptions=True)
+            await db.commit()
 
         # Mark listings not seen in this run as inactive
         async with AsyncSessionLocal() as db:
