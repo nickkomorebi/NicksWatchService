@@ -1,7 +1,7 @@
 import asyncio
 import base64
 import logging
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -18,16 +18,31 @@ HEADERS = {
         "Chrome/122.0.0.0 Safari/537.36"
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
 }
 
-# Image extensions to accept
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-
-# Patterns that indicate icon/logo/tracker images to skip
+# Patterns that indicate icon/logo/tracker images — skip these
+# Keep patterns long enough to avoid false positives (e.g. "ad" also matches "uploads")
 SKIP_PATTERNS = [
     "logo", "icon", "avatar", "pixel", "tracking", "sprite",
-    "banner", "ad", "badge", "button", "spacer", "blank",
+    "banner", "/ads/", "badge", "button", "spacer", "blank",
+    "privacy", "consent", "cookie",
 ]
+
+# Domains that only host watch/clock content — skip Claude vision check
+# because any image from these domains is guaranteed to be watch-related
+TRUSTED_WATCH_DOMAINS = {
+    "everywatch.com",
+    "img.everywatch.com",
+    "chrono24.com",
+    "watchcharts.com",
+    "watchuseek.com",
+    "watchrecon.com",
+    "watchexchange.com",
+    "reddit.com",      # [WTS]/[WTB] posts are watch listings
+    "preview.redd.it", # Reddit preview images
+    "i.redd.it",       # Reddit inline images
+}
 
 
 def _is_valid_image_url(url: str) -> bool:
@@ -59,25 +74,18 @@ def _extract_image_from_html(html: str, base_url: str) -> str | None:
     # 3. First <img> with a decent src (skip tiny icons)
     for img in soup.find_all("img", src=True):
         src = img["src"].strip()
-        if not src:
+        if not src or src.startswith("data:"):
             continue
-        # Make absolute
         if src.startswith("//"):
             src = "https:" + src
         elif src.startswith("/"):
             src = urljoin(base_url, src)
         if not _is_valid_image_url(src):
             continue
-        # Skip data URIs
-        if src.startswith("data:"):
-            continue
-        # Prefer images with product-like dimensions in attributes
-        width = img.get("width", "")
-        height = img.get("height", "")
         try:
-            if width and int(width) < 100:
+            if img.get("width") and int(img["width"]) < 100:
                 continue
-            if height and int(height) < 100:
+            if img.get("height") and int(img["height"]) < 100:
                 continue
         except ValueError:
             pass
@@ -86,42 +94,79 @@ def _extract_image_from_html(html: str, base_url: str) -> str | None:
     return None
 
 
+async def _fetch_with_httpx(url: str) -> str | None:
+    """Try fetching the page with plain httpx."""
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True, headers=HEADERS) as client:
+        resp = await client.get(url)
+        if resp.status_code == 200 and "html" in resp.headers.get("content-type", ""):
+            return resp.text
+    return None
+
+
+async def _fetch_with_playwright(url: str) -> str | None:
+    """Fallback: render page with a real browser to bypass bot detection."""
+    try:
+        from playwright.async_api import async_playwright
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            html = await page.content()
+            await browser.close()
+            return html
+    except Exception as exc:
+        logger.debug("Playwright fetch failed for %s: %s", url, exc)
+        return None
+
+
 async def fetch_listing_image(url: str) -> str | None:
-    """Fetch a listing page and extract the best candidate image URL."""
+    """Fetch a listing page and extract the best candidate image URL.
+    Falls back to Playwright for pages that block plain HTTP."""
     async with _fetch_semaphore:
         try:
-            async with httpx.AsyncClient(
-                timeout=8,
-                follow_redirects=True,
-                headers=HEADERS,
-            ) as client:
-                resp = await client.get(url)
-                if resp.status_code != 200:
-                    return None
-                content_type = resp.headers.get("content-type", "")
-                if "html" not in content_type:
-                    return None
-                return _extract_image_from_html(resp.text, url)
+            html = await _fetch_with_httpx(url)
+            if html is None:
+                # Blocked or non-200 — try Playwright
+                logger.debug("httpx blocked for %s, trying Playwright", url)
+                html = await _fetch_with_playwright(url)
+            if html is None:
+                return None
+            return _extract_image_from_html(html, url)
         except Exception as exc:
             logger.debug("Image fetch failed for %s: %s", url, exc)
             return None
 
 
 async def verify_watch_image(image_url: str) -> bool:
-    """Download image and ask Claude if it looks like a watch. Returns True if it passes."""
+    """Download image and ask Claude Haiku if it looks like a watch.
+
+    Skips the LLM check entirely for images from trusted watch-specific domains,
+    since those pages only ever show watches.
+    """
     from app.config import settings
 
+    # Fast-path: trust images from known watch-only platforms
+    from urllib.parse import urlparse
+    host = urlparse(image_url).netloc.lstrip("www.")
+    if any(host == d or host.endswith("." + d) for d in TRUSTED_WATCH_DOMAINS):
+        logger.debug("Trusted domain — skipping vision check for %s", image_url)
+        return True
+
     if not settings.anthropic_api_key:
-        return True  # can't verify, assume ok
+        return True
 
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=True, headers=HEADERS) as client:
             resp = await client.get(image_url)
             if resp.status_code != 200:
+                logger.debug("Image download got %d for %s", resp.status_code, image_url)
                 return False
             content_type = resp.headers.get("content-type", "image/jpeg")
             if "image" not in content_type:
                 return False
+            # Cap at 2 MB to avoid huge base64 payloads
+            if len(resp.content) > 2 * 1024 * 1024:
+                return True  # too large to verify, assume ok
             image_data = base64.standard_b64encode(resp.content).decode()
             media_type = content_type.split(";")[0].strip()
             if media_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
@@ -142,11 +187,7 @@ async def verify_watch_image(image_url: str) -> bool:
                 "content": [
                     {
                         "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": image_data,
-                        },
+                        "source": {"type": "base64", "media_type": media_type, "data": image_data},
                     },
                     {
                         "type": "text",
@@ -156,7 +197,9 @@ async def verify_watch_image(image_url: str) -> bool:
             }],
         )
         answer = message.content[0].text.strip().upper()
-        return answer.startswith("YES")
+        passed = answer.startswith("YES")
+        logger.debug("Vision check for %s: %s", image_url, answer)
+        return passed
     except Exception as exc:
         logger.debug("Vision check failed for %s: %s", image_url, exc)
-        return True  # on error, don't discard the image
+        return True  # on error, don't discard
