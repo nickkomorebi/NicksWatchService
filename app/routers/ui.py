@@ -26,7 +26,7 @@ async def index(request: Request, db: AsyncSession = Depends(get_db)):
     stmt = (
         select(Watch)
         .where(Watch.enabled == True)  # noqa: E712
-        .options(selectinload(Watch.listings))
+        .options(selectinload(Watch.listings).selectinload(Listing.comments))
         .order_by(Watch.brand, Watch.model)
     )
     result = await db.execute(stmt)
@@ -67,23 +67,6 @@ async def run_status_partial(request: Request, db: AsyncSession = Depends(get_db
     return templates.TemplateResponse(
         "partials/run_status_banner.html",
         {"request": request, "run": run},
-    )
-
-
-@router.get("/partials/listings/{listing_id}/comments", response_class=HTMLResponse)
-async def listing_comments_partial(
-    listing_id: int, request: Request, db: AsyncSession = Depends(get_db)
-):
-    stmt = (
-        select(ListingComment)
-        .where(ListingComment.listing_id == listing_id)
-        .order_by(ListingComment.created_at)
-    )
-    result = await db.execute(stmt)
-    comments = result.scalars().all()
-    return templates.TemplateResponse(
-        "partials/comments.html",
-        {"request": request, "listing_id": listing_id, "comments": comments},
     )
 
 
