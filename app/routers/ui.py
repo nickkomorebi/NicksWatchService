@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Request
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -7,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
-from app.models import Listing, Run, RunSourceError, Watch
+from app.models import Listing, ListingComment, Run, RunSourceError, Watch
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -65,6 +67,57 @@ async def run_status_partial(request: Request, db: AsyncSession = Depends(get_db
     return templates.TemplateResponse(
         "partials/run_status_banner.html",
         {"request": request, "run": run},
+    )
+
+
+@router.get("/partials/listings/{listing_id}/comments", response_class=HTMLResponse)
+async def listing_comments_partial(
+    listing_id: int, request: Request, db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(ListingComment)
+        .where(ListingComment.listing_id == listing_id)
+        .order_by(ListingComment.created_at)
+    )
+    result = await db.execute(stmt)
+    comments = result.scalars().all()
+    return templates.TemplateResponse(
+        "partials/comments.html",
+        {"request": request, "listing_id": listing_id, "comments": comments},
+    )
+
+
+@router.post("/listings/{listing_id}/comments", response_class=HTMLResponse)
+async def post_comment(
+    listing_id: int,
+    request: Request,
+    author_name: str = Form(...),
+    body: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    author_name = author_name.strip()[:100]
+    body = body.strip()[:2000]
+
+    if author_name and body:
+        comment = ListingComment(
+            listing_id=listing_id,
+            author_name=author_name,
+            body=body,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(comment)
+        await db.commit()
+
+    stmt = (
+        select(ListingComment)
+        .where(ListingComment.listing_id == listing_id)
+        .order_by(ListingComment.created_at)
+    )
+    result = await db.execute(stmt)
+    comments = result.scalars().all()
+    return templates.TemplateResponse(
+        "partials/comments.html",
+        {"request": request, "listing_id": listing_id, "comments": comments},
     )
 
 

@@ -55,5 +55,17 @@
 
     {# First seen #}
     <p class="text-xs text-gray-400">First seen {{ listing.first_seen_at.strftime("%b %d, %Y") }}</p>
+
+    {# Comments #}
+    <div class="pt-1 border-t border-gray-100">
+      <button
+        hx-get="/partials/listings/{{ listing.id }}/comments"
+        hx-target="#comments-{{ listing.id }}"
+        hx-swap="innerHTML"
+        class="text-xs text-blue-500 hover:text-blue-700 hover:underline">
+        💬 Comments
+      </button>
+      <div id="comments-{{ listing.id }}"></div>
+    </div>
   </div>
 </div>

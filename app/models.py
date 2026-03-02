@@ -65,6 +65,24 @@ class Listing(Base):
     extra_data: Mapped[str | None] = mapped_column(Text)  # JSON blob
 
     watch: Mapped["Watch"] = relationship("Watch", back_populates="listings")
+    comments: Mapped[list["ListingComment"]] = relationship(
+        "ListingComment", back_populates="listing", cascade="all, delete-orphan",
+        order_by="ListingComment.created_at",
+    )
+
+
+class ListingComment(Base):
+    __tablename__ = "listing_comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    listing_id: Mapped[int] = mapped_column(Integer, ForeignKey("listings.id"), nullable=False)
+    author_name: Mapped[str] = mapped_column(Text, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )
+
+    listing: Mapped["Listing"] = relationship("Listing", back_populates="comments")
 
 
 class Run(Base):
