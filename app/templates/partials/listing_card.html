@@ -1,5 +1,5 @@
 {% set is_new = last_run and listing.first_seen_at > last_run.started_at %}
-<div class="listing-card relative bg-white border rounded-lg overflow-hidden shadow-sm transition-all duration-500
+<div class="listing-card relative bg-white border rounded-lg shadow-sm transition-all duration-500
             {% if is_new %}border-green-400 bg-green-50{% else %}border-gray-200{% endif %}">
 
   {# Remove button #}
@@ -8,15 +8,15 @@
     hx-target="closest .listing-card"
     hx-swap="outerHTML swap:500ms"
     hx-confirm="Remove this listing?"
-    class="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition-colors"
+    class="absolute top-2 right-2 z-10 text-gray-400 hover:text-red-500 transition-colors"
     title="Remove listing">
     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
     </svg>
   </button>
 
-  {# Image #}
-  <a href="{{ listing.url }}" target="_blank" rel="noopener">
+  {# Image — overflow-hidden scoped here so rounded corners clip the image only #}
+  <a href="{{ listing.url }}" target="_blank" rel="noopener" class="block overflow-hidden rounded-t-lg">
     <img
       src="{{ listing.image_url or '/static/img/no-image.svg' }}"
       onerror="this.src='/static/img/no-image.svg'"
