@@ -43,9 +43,20 @@
     {% block content %}{% endblock %}
   </main>
 
+  <div id="toast"></div>
+
   <script>
-    // Expose run token for HTMX buttons set via Jinja
     const RUN_TOKEN = "{{ run_token }}";
+    document.addEventListener('htmx:afterSettle', () => {
+      const t = document.getElementById('toast');
+      if (!t || !t.dataset.active) return;
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => {
+        t.style.transition = 'opacity 0.4s';
+        t.style.opacity = '0';
+        setTimeout(() => { t.outerHTML = '<div id="toast"></div>'; }, 400);
+      }, 4500);
+    });
   </script>
 </body>
 </html>

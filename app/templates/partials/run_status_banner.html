@@ -20,8 +20,10 @@
   ✗ Run #{{ run.id }} failed: {{ run.error_summary }}
 </div>
 {% elif rate_limited_until %}
-<div id="run-status-banner" class="bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
-  ⏱ Already ran recently — next manual run available after {{ rate_limited_until.strftime("%H:%M UTC") }}
+<div id="run-status-banner" class="hidden"></div>
+<div id="toast" hx-swap-oob="outerHTML" data-active="1"
+     class="fixed top-16 right-4 z-50 bg-amber-50 border border-amber-300 text-amber-800 text-sm px-4 py-3 rounded-lg shadow-lg max-w-xs">
+  ⏱ Already ran recently — next run available after {{ rate_limited_until.strftime("%H:%M UTC") }}
 </div>
 {% else %}
 <div id="run-status-banner" class="hidden"></div>
