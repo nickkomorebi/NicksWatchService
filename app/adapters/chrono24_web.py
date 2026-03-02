@@ -1,14 +1,17 @@
-"""Chrono24 adapter that sources listings via Serper site:chrono24.com search.
+"""Chrono24 adapter.
 
-The official chrono24 PyPI package is blocked by Cloudflare.  This adapter
-uses the Serper Google-search API to find individual Chrono24 listing pages
-(URLs containing '--id<number>') and parses price from the snippet text.
+Primary path:  FlareSolverr (http://localhost:8191) → full HTML scrape.
+Fallback path: Serper site:chrono24.com search (fewer results, no images).
+
+FlareSolverr bypasses Cloudflare so we get the real rendered page with
+images, prices, and ~120 listings per query — the same set a browser sees.
 """
 import logging
 import re
 from typing import TYPE_CHECKING
 
 import httpx
+from bs4 import BeautifulSoup
 
 from app.adapters.base import AdapterError, BaseAdapter, RawListing
 from app.config import settings
@@ -18,40 +21,27 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+FLARESOLVERR_URL = "http://localhost:8191/v1"
+CHRONO24_BASE = "https://www.chrono24.com"
 SERPER_URL = "https://google.serper.dev/search"
+PAGE_SIZE = 120
 
-# Regex: URL must contain --id followed by digits to be an individual listing
 _LISTING_RE = re.compile(r"--id\d+")
-
-# Price extraction patterns from Chrono24 snippet text
-# e.g. "Listing: $32,500", "Price, €4,800", "$10,447.", "C$15,950"
 _PRICE_RE = re.compile(
-    r"(?:Listing\s*:\s*|Price[,\s]+)?"      # optional prefix
-    r"(C\$|US\$|A\$|HK\$|\$|€|£|¥|CHF\s*)"  # currency symbol
-    r"([\d,]+(?:\.\d+)?)",                   # amount
-    re.IGNORECASE,
+    r"^(C\$|US\$|A\$|HK\$|\$|€|£|¥|CHF\s?)([\d,]+(?:\.\d+)?)$"
 )
 _CURRENCY_MAP = {
     "$": "USD", "us$": "USD", "c$": "CAD", "a$": "AUD",
     "hk$": "HKD", "€": "EUR", "£": "GBP", "¥": "JPY", "chf": "CHF",
 }
 
-
-def _parse_price(snippet: str) -> tuple[float | None, str | None]:
-    """Extract the first price and currency from a Chrono24 snippet."""
-    m = _PRICE_RE.search(snippet)
-    if not m:
-        return None, None
-    sym = m.group(1).strip().lower()
-    amount_str = m.group(2).replace(",", "")
-    try:
-        amount = float(amount_str)
-    except ValueError:
-        return None, None
-    currency = _CURRENCY_MAP.get(sym, "USD")
-    return amount, currency
-
-
+# Serper fallback helpers (kept from previous implementation)
+_SNIPPET_PRICE_RE = re.compile(
+    r"(?:Listing\s*:\s*|Price[,\s]+)?"
+    r"(C\$|US\$|A\$|HK\$|\$|€|£|¥|CHF\s?)"
+    r"([\d,]+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
 _GENERIC_WORDS = {
     "used", "new", "watch", "watches", "automatic", "manual", "quartz",
     "gold", "steel", "silver", "leather", "bracelet", "strap", "set",
@@ -59,14 +49,118 @@ _GENERIC_WORDS = {
 }
 
 
-def _core_model(model: str) -> str:
-    """Return the first meaningful word(s) of a model name, stripping generic descriptors.
+# ── FlareSolverr helpers ──────────────────────────────────────────────────────
 
-    E.g. "Reverso Gold Bracelet" → "Reverso"
-         "Polaris II (cranberry red color)" → "Polaris II"
-         "Speedbeat GT" → "Speedbeat GT"
-    """
-    # Drop everything from first parenthesis
+def _parse_price_text(text: str) -> tuple[float | None, str | None]:
+    m = _PRICE_RE.match(text.strip())
+    if not m:
+        return None, None
+    sym = m.group(1).strip().lower()
+    try:
+        amount = float(m.group(2).replace(",", ""))
+    except ValueError:
+        return None, None
+    return amount, _CURRENCY_MAP.get(sym, "USD")
+
+
+def _parse_card(card) -> RawListing | None:
+    """Extract a RawListing from a single Chrono24 search-result div."""
+    link = card.find("a", href=_LISTING_RE)
+    if not link:
+        return None
+
+    href = link.get("href", "")
+    url = href if href.startswith("http") else CHRONO24_BASE + href
+
+    # First non-lazy CDN image
+    img_url = None
+    for img in card.find_all("img", src=re.compile(r"img\.chrono24\.com")):
+        src = img.get("src", "")
+        if src and not src.startswith("data:"):
+            img_url = src
+            break
+
+    # Text lines (skip carousel nav labels)
+    lines = [
+        t for t in card.get_text(separator="\n", strip=True).split("\n")
+        if t and "go to slide" not in t.lower()
+    ]
+
+    # First two lines are brand-family + model descriptor → full title
+    title = " ".join(lines[:2]) if len(lines) >= 2 else (lines[0] if lines else "")
+
+    price, currency, location = None, None, None
+    for line in lines[2:]:
+        if price is None:
+            p, c = _parse_price_text(line)
+            if p is not None:
+                price, currency = p, c
+                continue
+        if re.match(r"^[A-Z]{2}$", line):
+            location = line
+
+    return RawListing(
+        source="chrono24",
+        url=url,
+        title=title,
+        price_amount=price,
+        currency=currency,
+        condition="Pre-owned",
+        seller_location=location,
+        image_url=img_url,
+        extra_data={},
+    )
+
+
+async def _search_via_flaresolverr(watch: "Watch") -> list[RawListing]:
+    """Fetch Chrono24 search via FlareSolverr, return parsed listings."""
+    refs = [r.strip() for r in (watch.references_csv or "").split(",") if r.strip()]
+    # Use reference if available for precision; otherwise brand + model
+    if refs:
+        query = f"{watch.brand} {refs[0]}"
+    else:
+        query = f"{watch.brand} {watch.model}"
+
+    search_url = (
+        f"{CHRONO24_BASE}/search/index.htm"
+        f"?dosearch=true&query={query.replace(' ', '+')}"
+        f"&usedOrNew=used&sortorder=5&pageSize={PAGE_SIZE}&showPage=1"
+    )
+
+    async with httpx.AsyncClient(timeout=90) as client:
+        try:
+            resp = await client.post(
+                FLARESOLVERR_URL,
+                json={"cmd": "request.get", "url": search_url, "maxTimeout": 60000},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"FlareSolverr request failed: {exc}") from exc
+
+        data = resp.json()
+        if data.get("status") != "ok":
+            raise RuntimeError(f"FlareSolverr returned status={data.get('status')}")
+
+        html = data["solution"]["response"]
+
+    soup = BeautifulSoup(html, "html.parser")
+    cards = soup.select("[class*='wt-search-result']")
+    logger.debug("chrono24 FlareSolverr: %d cards for '%s'", len(cards), query)
+
+    results: list[RawListing] = []
+    seen: set[str] = set()
+    for card in cards:
+        listing = _parse_card(card)
+        if listing and listing.url not in seen:
+            seen.add(listing.url)
+            results.append(listing)
+
+    return results
+
+
+# ── Serper fallback helpers ───────────────────────────────────────────────────
+
+def _core_model(model: str) -> str:
     model = model.split("(")[0].strip()
     words = model.split()
     core = []
@@ -76,86 +170,99 @@ def _core_model(model: str) -> str:
         core.append(w)
         if len(core) >= 2:
             break
-    return " ".join(core) if core else words[0]
+    return " ".join(core) if core else (words[0] if words else model)
 
 
 def _brand_variants(brand: str) -> list[str]:
-    """Return both the space-separated and hyphen-separated forms of a brand name."""
     hyphenated = brand.replace(" ", "-")
-    variants = [hyphenated]
-    if hyphenated != brand:
-        variants.append(brand)
-    return variants
+    return [hyphenated] if hyphenated == brand else [hyphenated, brand]
 
 
-def _build_queries(watch: "Watch") -> list[str]:
-    """Build up to 2 site:chrono24.com queries for a watch."""
+def _build_serper_queries(watch: "Watch") -> list[str]:
     refs = [r.strip() for r in (watch.references_csv or "").split(",") if r.strip()]
     core = _core_model(watch.model)
     queries: list[str] = []
-
     for brand in _brand_variants(watch.brand):
         if refs:
-            # Reference + brand is the most targeted query
             queries.append(f'site:chrono24.com "{brand}" "{refs[0]}"')
         else:
             queries.append(f'site:chrono24.com "{brand}" "{core}"')
         if len(queries) >= 2:
             break
-
-    # If only one variant, add a core-model fallback as a second query
     if len(queries) == 1 and refs:
         queries.append(f'site:chrono24.com "{_brand_variants(watch.brand)[0]}" "{core}"')
-
     return queries[:2]
 
 
+def _parse_snippet_price(snippet: str) -> tuple[float | None, str | None]:
+    m = _SNIPPET_PRICE_RE.search(snippet)
+    if not m:
+        return None, None
+    sym = m.group(1).strip().lower()
+    try:
+        amount = float(m.group(2).replace(",", ""))
+    except ValueError:
+        return None, None
+    return amount, _CURRENCY_MAP.get(sym, "USD")
+
+
+async def _search_via_serper(watch: "Watch") -> list[RawListing]:
+    """Fallback: find Chrono24 individual listings via Serper site: search."""
+    if not settings.serper_api_key:
+        return []
+
+    seen: set[str] = set()
+    results: list[RawListing] = []
+    headers = {"X-API-KEY": settings.serper_api_key, "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        for query in _build_serper_queries(watch):
+            try:
+                resp = await client.post(SERPER_URL, json={"q": query, "num": 20}, headers=headers)
+                resp.raise_for_status()
+            except httpx.HTTPError:
+                continue
+
+            for item in resp.json().get("organic", []):
+                url = item.get("link", "")
+                if not _LISTING_RE.search(url) or url in seen:
+                    continue
+                seen.add(url)
+                snippet = item.get("snippet", "")
+                price, currency = _parse_snippet_price(snippet)
+                results.append(RawListing(
+                    source="chrono24",
+                    url=url,
+                    title=item.get("title", ""),
+                    price_amount=price,
+                    currency=currency,
+                    condition="Pre-owned",
+                    seller_location=None,
+                    image_url=None,
+                    extra_data={"snippet": snippet},
+                ))
+
+    logger.debug("chrono24 Serper fallback: %d listings for '%s %s'",
+                 len(results), watch.brand, watch.model)
+    return results
+
+
+# ── Adapter ───────────────────────────────────────────────────────────────────
+
 class Chrono24WebAdapter(BaseAdapter):
-    name = "chrono24"  # Same source name as old adapter for deduplication
+    name = "chrono24"
 
     async def search(self, watch: "Watch") -> list[RawListing]:
+        # Try FlareSolverr first
+        try:
+            results = await _search_via_flaresolverr(watch)
+            if results:
+                return results
+            logger.debug("chrono24: FlareSolverr returned 0 results, trying Serper fallback")
+        except Exception as exc:
+            logger.info("chrono24: FlareSolverr unavailable (%s), falling back to Serper", exc)
+
+        # Fallback to Serper site: search
         if not settings.serper_api_key:
-            raise AdapterError("SERPER_API_KEY not configured")
-
-        seen_urls: set[str] = set()
-        results: list[RawListing] = []
-
-        headers = {"X-API-KEY": settings.serper_api_key, "Content-Type": "application/json"}
-
-        async with httpx.AsyncClient(timeout=20) as client:
-            for query in _build_queries(watch):
-                payload = {"q": query, "num": 20}
-                try:
-                    resp = await client.post(SERPER_URL, json=payload, headers=headers)
-                    resp.raise_for_status()
-                except httpx.HTTPError as exc:
-                    raise AdapterError(f"Serper request failed: {exc}") from exc
-
-                for item in resp.json().get("organic", []):
-                    url = item.get("link", "")
-                    # Only individual listing pages — skip category / magazine pages
-                    if not _LISTING_RE.search(url):
-                        continue
-                    if url in seen_urls:
-                        continue
-                    seen_urls.add(url)
-
-                    snippet = item.get("snippet", "")
-                    price, currency = _parse_price(snippet)
-
-                    results.append(
-                        RawListing(
-                            source=self.name,
-                            url=url,
-                            title=item.get("title", ""),
-                            price_amount=price,
-                            currency=currency,
-                            condition="Pre-owned",
-                            seller_location=None,
-                            image_url=None,
-                            extra_data={"snippet": snippet},
-                        )
-                    )
-
-        logger.debug("chrono24_web: %d listings for '%s %s'", len(results), watch.brand, watch.model)
-        return results
+            raise AdapterError("FlareSolverr unavailable and SERPER_API_KEY not configured")
+        return await _search_via_serper(watch)
