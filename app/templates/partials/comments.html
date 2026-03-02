@@ -1,11 +1,22 @@
 <div class="space-y-2 mb-3">
   {% for comment in comments %}
-  <div class="text-xs">
-    <div class="flex items-baseline gap-1.5">
-      <span class="font-semibold text-gray-800">{{ comment.author_name }}</span>
-      <span class="text-gray-400">{{ comment.created_at.strftime("%b %d, %Y") }}</span>
+  <div class="text-xs flex items-start justify-between group">
+    <div>
+      <div class="flex items-baseline gap-1.5">
+        <span class="font-semibold text-gray-800">{{ comment.author_name }}</span>
+        <span class="text-gray-400">{{ comment.created_at.strftime("%b %d, %Y") }}</span>
+      </div>
+      <p class="text-gray-600 mt-0.5 whitespace-pre-wrap break-words">{{ comment.body }}</p>
     </div>
-    <p class="text-gray-600 mt-0.5 whitespace-pre-wrap break-words">{{ comment.body }}</p>
+    <button
+      type="button"
+      hx-delete="/listings/{{ listing_id }}/comments/{{ comment.id }}"
+      hx-target="#comments-section-{{ listing_id }}"
+      hx-swap="outerHTML"
+      hx-confirm="Delete this comment?"
+      class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 ml-2 flex-shrink-0 text-base leading-none">
+      &times;
+    </button>
   </div>
   {% else %}
   <p class="text-xs text-gray-400 italic">No comments yet.</p>
@@ -14,8 +25,8 @@
 
 <form
   hx-post="/listings/{{ listing_id }}/comments"
-  hx-target="#comments-{{ listing_id }}"
-  hx-swap="innerHTML"
+  hx-target="#comments-section-{{ listing_id }}"
+  hx-swap="outerHTML"
   class="space-y-1.5">
   <input
     type="text"

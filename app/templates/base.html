@@ -21,15 +21,14 @@
         <a href="/" class="hover:text-gray-300">Listings</a>
         <a href="/runs" class="hover:text-gray-300">Run History</a>
         <button
-          hx-post="/api/runs/trigger"
+          hx-post="/partials/run-trigger"
           hx-headers='{"X-Run-Token": "{{ run_token }}"}'
           hx-target="#run-status-banner"
           hx-swap="outerHTML"
-          hx-indicator="#run-spinner"
-          class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-3 py-1.5 rounded">
+          hx-disabled-elt="this"
+          class="bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded">
           Run Now
         </button>
-        <span id="run-spinner" class="htmx-indicator text-gray-400 text-xs">running…</span>
       </div>
     </div>
   </nav>

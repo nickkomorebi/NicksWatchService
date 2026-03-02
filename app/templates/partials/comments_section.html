@@ -1,0 +1,11 @@
+<div id="comments-section-{{ listing_id }}" class="pt-1 border-t border-gray-100">
+  <button
+    type="button"
+    onclick="this.nextElementSibling.classList.toggle('hidden')"
+    class="text-xs text-blue-500 hover:text-blue-700 hover:underline">
+    💬 {{ comments | length }} comment{% if comments | length != 1 %}s{% endif %}
+  </button>
+  <div id="comments-{{ listing_id }}" class="{{ '' if open else 'hidden' }} mt-2">
+    {% include "partials/comments.html" %}
+  </div>
+</div>

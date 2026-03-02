@@ -1,4 +1,6 @@
-from datetime import datetime, timezone
+import asyncio
+import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
@@ -9,7 +11,10 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
+from app.dependencies import run_token_required
 from app.models import Listing, ListingComment, Run, RunSourceError, Watch
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -70,6 +75,56 @@ async def run_status_partial(request: Request, db: AsyncSession = Depends(get_db
     )
 
 
+@router.post("/partials/run-trigger", response_class=HTMLResponse)
+async def run_trigger_partial(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(run_token_required),
+):
+    # Already running?
+    stmt = select(Run).where(Run.status == "running")
+    running = (await db.execute(stmt)).scalar_one_or_none()
+    if running:
+        return templates.TemplateResponse(
+            "partials/run_status_banner.html", {"request": request, "run": running}
+        )
+
+    # Rate limit: < 6h since last success?
+    stmt = select(Run).where(Run.status == "succeeded").order_by(Run.id.desc()).limit(1)
+    recent = (await db.execute(stmt)).scalar_one_or_none()
+    if recent and recent.finished_at:
+        finished = (
+            recent.finished_at.replace(tzinfo=timezone.utc)
+            if recent.finished_at.tzinfo is None
+            else recent.finished_at
+        )
+        if datetime.now(timezone.utc) - finished < timedelta(hours=6):
+            next_run = finished + timedelta(hours=6)
+            return templates.TemplateResponse(
+                "partials/run_status_banner.html",
+                {"request": request, "run": None, "rate_limited_until": next_run},
+            )
+
+    # Start run
+    run = Run(status="running", triggered_by="manual")
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+    run_id = run.id
+
+    async def _bg():
+        from app.services.job_runner import run_job as _rj
+        try:
+            await _rj(triggered_by="manual", existing_run_id=run_id)
+        except Exception as exc:
+            logger.exception("Background run failed: %s", exc)
+
+    asyncio.create_task(_bg())
+    return templates.TemplateResponse(
+        "partials/run_status_banner.html", {"request": request, "run": run}
+    )
+
+
 @router.post("/listings/{listing_id}/comments", response_class=HTMLResponse)
 async def post_comment(
     listing_id: int,
@@ -99,8 +154,36 @@ async def post_comment(
     result = await db.execute(stmt)
     comments = result.scalars().all()
     return templates.TemplateResponse(
-        "partials/comments.html",
-        {"request": request, "listing_id": listing_id, "comments": comments},
+        "partials/comments_section.html",
+        {"request": request, "listing_id": listing_id, "comments": comments, "open": True},
+    )
+
+
+@router.delete("/listings/{listing_id}/comments/{comment_id}", response_class=HTMLResponse)
+async def delete_comment(
+    listing_id: int,
+    comment_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(ListingComment).where(
+        ListingComment.id == comment_id,
+        ListingComment.listing_id == listing_id,
+    )
+    comment = (await db.execute(stmt)).scalar_one_or_none()
+    if comment:
+        await db.delete(comment)
+        await db.commit()
+
+    stmt = (
+        select(ListingComment)
+        .where(ListingComment.listing_id == listing_id)
+        .order_by(ListingComment.created_at)
+    )
+    comments = (await db.execute(stmt)).scalars().all()
+    return templates.TemplateResponse(
+        "partials/comments_section.html",
+        {"request": request, "listing_id": listing_id, "comments": comments, "open": True},
     )
 
 
