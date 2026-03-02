@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import httpx
 from bs4 import BeautifulSoup
 
-from app.adapters.base import AdapterError, BaseAdapter, RawListing
+from app.adapters.base import AdapterError, BaseAdapter, RawListing, build_queries
 from app.config import settings
 
 if TYPE_CHECKING:
@@ -113,47 +113,40 @@ def _parse_card(card) -> RawListing | None:
 
 
 async def _search_via_flaresolverr(watch: "Watch") -> list[RawListing]:
-    """Fetch Chrono24 search via FlareSolverr, return parsed listings."""
-    refs = [r.strip() for r in (watch.references_csv or "").split(",") if r.strip()]
-    # Use reference if available for precision; otherwise brand + model
-    if refs:
-        query = f"{watch.brand} {refs[0]}"
-    else:
-        query = f"{watch.brand} {watch.model}"
-
-    search_url = (
-        f"{CHRONO24_BASE}/search/index.htm"
-        f"?dosearch=true&query={query.replace(' ', '+')}"
-        f"&usedOrNew=used&sortorder=5&pageSize={PAGE_SIZE}&showPage=1"
-    )
+    """Fetch Chrono24 search via FlareSolverr for each query, return deduplicated listings."""
+    seen: set[str] = set()
+    results: list[RawListing] = []
 
     async with httpx.AsyncClient(timeout=90) as client:
-        try:
-            resp = await client.post(
-                FLARESOLVERR_URL,
-                json={"cmd": "request.get", "url": search_url, "maxTimeout": 60000},
+        for query in build_queries(watch):
+            search_url = (
+                f"{CHRONO24_BASE}/search/index.htm"
+                f"?dosearch=true&query={query.replace(' ', '+')}"
+                f"&usedOrNew=used&sortorder=5&pageSize={PAGE_SIZE}&showPage=1"
             )
-            resp.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise RuntimeError(f"FlareSolverr request failed: {exc}") from exc
+            try:
+                resp = await client.post(
+                    FLARESOLVERR_URL,
+                    json={"cmd": "request.get", "url": search_url, "maxTimeout": 60000},
+                )
+                resp.raise_for_status()
+            except httpx.HTTPError as exc:
+                raise RuntimeError(f"FlareSolverr request failed: {exc}") from exc
 
-        data = resp.json()
-        if data.get("status") != "ok":
-            raise RuntimeError(f"FlareSolverr returned status={data.get('status')}")
+            data = resp.json()
+            if data.get("status") != "ok":
+                raise RuntimeError(f"FlareSolverr returned status={data.get('status')}")
 
-        html = data["solution"]["response"]
+            html = data["solution"]["response"]
+            soup = BeautifulSoup(html, "html.parser")
+            cards = soup.select("[class*='wt-search-result']")
+            logger.debug("chrono24 FlareSolverr: %d cards for '%s'", len(cards), query)
 
-    soup = BeautifulSoup(html, "html.parser")
-    cards = soup.select("[class*='wt-search-result']")
-    logger.debug("chrono24 FlareSolverr: %d cards for '%s'", len(cards), query)
-
-    results: list[RawListing] = []
-    seen: set[str] = set()
-    for card in cards:
-        listing = _parse_card(card)
-        if listing and listing.url not in seen:
-            seen.add(listing.url)
-            results.append(listing)
+            for card in cards:
+                listing = _parse_card(card)
+                if listing and listing.url not in seen:
+                    seen.add(listing.url)
+                    results.append(listing)
 
     return results
 
@@ -179,19 +172,13 @@ def _brand_variants(brand: str) -> list[str]:
 
 
 def _build_serper_queries(watch: "Watch") -> list[str]:
-    refs = [r.strip() for r in (watch.references_csv or "").split(",") if r.strip()]
+    brand = _brand_variants(watch.brand)[0]
     core = _core_model(watch.model)
-    queries: list[str] = []
-    for brand in _brand_variants(watch.brand):
-        if refs:
-            queries.append(f'site:chrono24.com "{brand}" "{refs[0]}"')
-        else:
-            queries.append(f'site:chrono24.com "{brand}" "{core}"')
-        if len(queries) >= 2:
-            break
-    if len(queries) == 1 and refs:
-        queries.append(f'site:chrono24.com "{_brand_variants(watch.brand)[0]}" "{core}"')
-    return queries[:2]
+    queries: list[str] = [f'site:chrono24.com "{brand}" "{core}"']
+    for q in build_queries(watch)[1:]:  # skip brand+model (already covered above)
+        queries.append(f'site:chrono24.com "{brand}" "{q}"')
+    seen: set[str] = set()
+    return [q for q in queries if not (q in seen or seen.add(q))]
 
 
 def _parse_snippet_price(snippet: str) -> tuple[float | None, str | None]:

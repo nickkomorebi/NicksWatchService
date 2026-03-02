@@ -6,6 +6,17 @@ if TYPE_CHECKING:
     from app.models import Watch
 
 
+def build_queries(watch: "Watch") -> list[str]:
+    """Return all search queries for a watch: brand+model, each reference, each query term."""
+    queries = [f"{watch.brand} {watch.model}"]
+    for ref in [r.strip() for r in (watch.references_csv or "").split(",") if r.strip()]:
+        queries.append(ref)
+    for term in [t.strip() for t in (watch.query_terms or "").split(",") if t.strip()]:
+        queries.append(term)
+    seen: set[str] = set()
+    return [q for q in queries if not (q in seen or seen.add(q))]
+
+
 @dataclass
 class RawListing:
     source: str
