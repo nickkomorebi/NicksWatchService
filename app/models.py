@@ -52,6 +52,7 @@ class Listing(Base):
     condition: Mapped[str | None] = mapped_column(Text)
     seller_location: Mapped[str | None] = mapped_column(Text)
     image_url: Mapped[str | None] = mapped_column(Text)
+    listed_at: Mapped[datetime | None] = mapped_column(DateTime)
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )

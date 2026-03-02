@@ -53,8 +53,12 @@
       {% if listing.seller_location %}<span>{{ listing.seller_location }}</span>{% endif %}
     </div>
 
-    {# First seen #}
+    {# Date #}
+    {% if listing.listed_at %}
+    <p class="text-xs text-gray-400">Posted {{ listing.listed_at.strftime("%b %d, %Y") }}</p>
+    {% else %}
     <p class="text-xs text-gray-400">First seen {{ listing.first_seen_at.strftime("%b %d, %Y") }}</p>
+    {% endif %}
 
     {# Comments #}
     {% set listing_id = listing.id %}

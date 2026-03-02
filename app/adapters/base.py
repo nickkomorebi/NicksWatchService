@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
@@ -27,6 +28,7 @@ class RawListing:
     condition: Optional[str]
     seller_location: Optional[str]
     image_url: Optional[str]
+    listed_at: Optional[datetime] = None
     extra_data: dict = field(default_factory=dict)
 
 

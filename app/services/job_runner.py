@@ -51,6 +51,9 @@ async def _upsert_listing(
     existing = result.scalar_one_or_none()
 
     if existing:
+        # If the user dismissed this listing, never resurface it
+        if existing.removed_at is not None:
+            return False
         existing.last_seen_at = now
         existing.last_checked_at = now
         existing.is_active = True
@@ -76,6 +79,7 @@ async def _upsert_listing(
             condition=raw.condition,
             seller_location=raw.seller_location,
             image_url=raw.image_url,
+            listed_at=raw.listed_at,
             first_seen_at=now,
             last_seen_at=now,
             last_checked_at=now,

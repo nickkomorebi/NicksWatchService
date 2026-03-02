@@ -1,5 +1,7 @@
+import asyncio
 import json
 import logging
+import time
 from typing import TYPE_CHECKING, Literal
 
 from app.adapters.base import RawListing
@@ -8,6 +10,26 @@ if TYPE_CHECKING:
     from app.models import Watch
 
 logger = logging.getLogger(__name__)
+
+
+class _RateLimiter:
+    """Simple async rate limiter — enforces a minimum interval between calls."""
+
+    def __init__(self, calls_per_minute: int) -> None:
+        self._interval = 60.0 / calls_per_minute
+        self._lock = asyncio.Lock()
+        self._last_call: float = 0.0
+
+    async def acquire(self) -> None:
+        async with self._lock:
+            now = time.monotonic()
+            wait = self._interval - (now - self._last_call)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._last_call = time.monotonic()
+
+
+_llm_limiter = _RateLimiter(calls_per_minute=40)
 
 ALWAYS_FORBIDDEN = [
     "replica",
@@ -153,6 +175,7 @@ async def llm_verify(raw: RawListing, watch: "Watch") -> tuple[float, str]:
         f'{{"confidence": <0.0-1.0>, "rationale": "<one sentence>"}}'
     )
 
+    await _llm_limiter.acquire()
     try:
         message = await client.messages.create(
             model="claude-sonnet-4-6",
