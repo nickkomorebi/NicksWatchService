@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -100,9 +101,11 @@ async def run_trigger_partial(
         )
         if datetime.now(timezone.utc) - finished < timedelta(hours=6):
             next_run = finished + timedelta(hours=6)
+            msg = f"⏱ Already ran recently — next run available after {next_run.strftime('%H:%M UTC')}"
             return templates.TemplateResponse(
                 "partials/run_status_banner.html",
-                {"request": request, "run": None, "rate_limited_until": next_run},
+                {"request": request, "run": None},
+                headers={"HX-Trigger": json.dumps({"showToast": msg})},
             )
 
     # Start run

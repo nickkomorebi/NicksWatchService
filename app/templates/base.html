@@ -43,18 +43,20 @@
     {% block content %}{% endblock %}
   </main>
 
-  <div id="toast"></div>
+  <div id="toast" class="hidden fixed top-16 right-4 z-50 bg-amber-50 border border-amber-300 text-amber-800 text-sm px-4 py-3 rounded-lg shadow-lg max-w-xs"></div>
 
   <script>
     const RUN_TOKEN = "{{ run_token }}";
-    document.addEventListener('htmx:afterSettle', () => {
+    document.body.addEventListener('showToast', (e) => {
       const t = document.getElementById('toast');
-      if (!t || !t.dataset.active) return;
+      t.textContent = e.detail;
+      t.classList.remove('hidden');
+      t.style.opacity = '1';
       clearTimeout(t._timer);
       t._timer = setTimeout(() => {
         t.style.transition = 'opacity 0.4s';
         t.style.opacity = '0';
-        setTimeout(() => { t.outerHTML = '<div id="toast"></div>'; }, 400);
+        setTimeout(() => { t.classList.add('hidden'); t.style.cssText = ''; }, 400);
       }, 4500);
     });
   </script>
