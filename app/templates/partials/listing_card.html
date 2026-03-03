@@ -25,10 +25,26 @@
   </a>
 
   <div class="p-3 space-y-1">
-    {# Source badge #}
+    {# Source badge — logo image #}
+    {% set _logos = {
+      'ebay': 'ebay.svg',
+      'chrono24': 'chrono24.svg',
+      'reddit': 'reddit.svg',
+      'web_search': 'google.svg',
+      'web_search_recent': 'google.svg',
+      'mercari_jp': 'mercari.svg',
+      'yahoo_jp': 'yahoo.svg',
+    } %}
     <div class="flex items-center justify-between">
-      <span class="text-xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded
-                   bg-indigo-100 text-indigo-700">{{ listing.source }}</span>
+      {% if listing.source in _logos %}
+        <img src="/static/img/logos/{{ _logos[listing.source] }}"
+             alt="{{ listing.source }}"
+             class="h-5 w-auto"
+             title="{{ listing.source }}">
+      {% else %}
+        <span class="text-xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded
+                     bg-indigo-100 text-indigo-700">{{ listing.source }}</span>
+      {% endif %}
       {% if is_new %}
       <span class="text-xs font-semibold text-green-600">NEW</span>
       {% endif %}
