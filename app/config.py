@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Scheduler
     schedule_interval_hours: int = 6
 
+    # FlareSolverr (Cloudflare bypass)
+    flaresolverr_url: str = "http://flaresolverr:8191"
+
     # App
     app_port: int = 8000
     log_level: str = "INFO"

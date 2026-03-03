@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-FLARESOLVERR_URL = "http://localhost:8191/v1"
+FLARESOLVERR_URL = "http://localhost:8191/v1"  # overridden at call-time by settings
 CHRONO24_BASE = "https://www.chrono24.com"
 SERPER_URL = "https://google.serper.dev/search"
 PAGE_SIZE = 120
@@ -126,7 +126,7 @@ async def _search_via_flaresolverr(watch: "Watch") -> list[RawListing]:
             )
             try:
                 resp = await client.post(
-                    FLARESOLVERR_URL,
+                    f"{settings.flaresolverr_url}/v1",
                     json={"cmd": "request.get", "url": search_url, "maxTimeout": 60000},
                 )
                 resp.raise_for_status()
