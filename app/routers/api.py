@@ -1,11 +1,13 @@
 import asyncio
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.dependencies import run_token_required
 from app.models import Listing, Run
@@ -71,6 +73,40 @@ async def get_latest_run(db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     run = result.scalar_one_or_none()
     return run
+
+
+@router.get("/ebay/marketplace-account-deletion")
+async def ebay_challenge(challenge_code: str):
+    """eBay verification handshake — responds with SHA-256 of code+token+url."""
+    if not settings.ebay_verification_token or not settings.ebay_deletion_endpoint_url:
+        raise HTTPException(status_code=503, detail="eBay deletion endpoint not configured")
+    digest = hashlib.sha256(
+        (challenge_code + settings.ebay_verification_token + settings.ebay_deletion_endpoint_url).encode()
+    ).hexdigest()
+    return {"challengeResponse": digest}
+
+
+@router.post("/ebay/marketplace-account-deletion", status_code=status.HTTP_200_OK)
+async def ebay_account_deletion(request: Request, db: AsyncSession = Depends(get_db)):
+    """Receive eBay account deletion notifications and purge matching listings."""
+    body = await request.json()
+    data = body.get("notification", {}).get("data", {})
+    username = data.get("username", "")
+    user_id = data.get("userId", "")
+    logger.info("eBay account deletion notification: userId=%s username=%s", user_id, username)
+
+    # We don't store seller user IDs, but purge any eBay listings whose URL
+    # contains the user ID (eBay member URLs follow /usr/<userId> patterns).
+    if user_id:
+        await db.execute(
+            delete(Listing).where(
+                Listing.source == "ebay",
+                Listing.url.contains(user_id),
+            )
+        )
+        await db.commit()
+
+    return {"status": "ok"}
 
 
 @router.delete("/listings/{listing_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     serper_api_key: str = ""
     ebay_client_id: str = ""
     ebay_client_secret: str = ""
+    ebay_verification_token: str = ""       # chosen by you, registered in eBay dev portal
+    ebay_deletion_endpoint_url: str = ""    # full public URL of the deletion endpoint
 
     # LLM
     anthropic_api_key: str = ""
