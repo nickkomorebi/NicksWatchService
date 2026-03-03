@@ -98,7 +98,6 @@ async def _process_adapter(
     watch: Watch,
     run_id: int,
     run_seen_hashes: set[str],
-    db: AsyncSession,
 ) -> tuple[int, int, list[str]]:
     """Run one adapter for one watch. Returns (found, new, errors)."""
     errors = []
@@ -118,47 +117,50 @@ async def _process_adapter(
         errors.append(msg)
         return found, new, errors
 
-    for raw in raw_listings:
-        if not raw.url and not raw.title:
-            continue
-
-        result = matcher.is_match(raw, watch)
-        if result == "no":
-            continue
-
-        confidence_score = None
-        confidence_rationale = None
-
-        needs_llm = result == "ambiguous" or raw.source in ALWAYS_VERIFY_SOURCES
-        if needs_llm:
-            try:
-                confidence_score, confidence_rationale = await matcher.llm_verify(raw, watch)
-            except Exception as exc:
-                logger.warning("LLM verify failed for '%s': %s", raw.title, exc)
-                confidence_score = 0.5
-                confidence_rationale = f"LLM error: {exc}"
-            if confidence_score < LLM_CONFIDENCE_THRESHOLD:
-                logger.debug(
-                    "LLM rejected listing from %s: %s (score=%.2f)",
-                    raw.source, raw.title, confidence_score,
-                )
+    # Each adapter gets its own session — concurrent adapters sharing one session
+    # can corrupt it when commits interleave across await points.
+    async with AsyncSessionLocal() as db:
+        for raw in raw_listings:
+            if not raw.url and not raw.title:
                 continue
 
-        # Fetch image for sources that don't provide one
-        if not raw.image_url and raw.url:
-            from app.services.image_fetcher import fetch_listing_image, verify_watch_image
-            candidate = await fetch_listing_image(raw.url)
-            if candidate:
-                if await verify_watch_image(candidate):
-                    raw.image_url = candidate
-                    logger.debug("Fetched image for %s: %s", raw.title, candidate)
-                else:
-                    logger.debug("Image failed watch check for %s", raw.title)
+            result = matcher.is_match(raw, watch)
+            if result == "no":
+                continue
 
-        found += 1
-        is_new = await _upsert_listing(db, raw, watch, confidence_score, confidence_rationale, run_seen_hashes)
-        if is_new:
-            new += 1
+            confidence_score = None
+            confidence_rationale = None
+
+            needs_llm = result == "ambiguous" or raw.source in ALWAYS_VERIFY_SOURCES
+            if needs_llm:
+                try:
+                    confidence_score, confidence_rationale = await matcher.llm_verify(raw, watch)
+                except Exception as exc:
+                    logger.warning("LLM verify failed for '%s': %s", raw.title, exc)
+                    confidence_score = 0.5
+                    confidence_rationale = f"LLM error: {exc}"
+                if confidence_score < LLM_CONFIDENCE_THRESHOLD:
+                    logger.debug(
+                        "LLM rejected listing from %s: %s (score=%.2f)",
+                        raw.source, raw.title, confidence_score,
+                    )
+                    continue
+
+            # Fetch image for sources that don't provide one
+            if not raw.image_url and raw.url:
+                from app.services.image_fetcher import fetch_listing_image, verify_watch_image
+                candidate = await fetch_listing_image(raw.url)
+                if candidate:
+                    if await verify_watch_image(candidate):
+                        raw.image_url = candidate
+                        logger.debug("Fetched image for %s: %s", raw.title, candidate)
+                    else:
+                        logger.debug("Image failed watch check for %s", raw.title)
+
+            found += 1
+            is_new = await _upsert_listing(db, raw, watch, confidence_score, confidence_rationale, run_seen_hashes)
+            if is_new:
+                new += 1
 
     return found, new, errors
 
@@ -175,7 +177,7 @@ async def _process_watch(
 
     async def run_with_sem(adapter):
         async with sem:
-            return await _process_adapter(adapter, watch, run_id, run_seen_hashes, db)
+            return await _process_adapter(adapter, watch, run_id, run_seen_hashes)
 
     results = await asyncio.gather(*[run_with_sem(a) for a in adapters], return_exceptions=True)
 
