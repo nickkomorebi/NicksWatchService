@@ -29,7 +29,8 @@ class MercariJpAdapter(BaseAdapter):
                 raise AdapterError(f"Mercari JP search failed: {exc}") from exc
 
             for item in response.items:
-                url = f"https://jp.mercari.com/item/{item.id}" if item.id else ""
+                item_id = getattr(item, "id_", None) or getattr(item, "id", None)
+                url = f"https://jp.mercari.com/item/{item_id}" if item_id else ""
                 if url in seen:
                     continue
                 seen.add(url)
@@ -46,7 +47,7 @@ class MercariJpAdapter(BaseAdapter):
                     condition=str(item.status) if item.status else None,
                     seller_location=None,
                     image_url=item.thumbnails[0] if item.thumbnails else None,
-                    extra_data={"item_id": item.id},
+                    extra_data={"item_id": item_id},
                 ))
             logger.debug("%s: query='%s' total=%d", self.name, query, len(results))
 
