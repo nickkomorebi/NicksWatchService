@@ -46,11 +46,20 @@ async def _get_ebay_token() -> str:
     return _token_cache["token"]
 
 
-def _build_query(watch: "Watch") -> str:
+def _build_queries(watch: "Watch") -> list[str]:
+    """Build eBay search queries. Uses brand+ref for each reference (more precise
+    than brand+model+ref which often matches nothing), falling back to brand+model."""
     refs = [r.strip() for r in (watch.references_csv or "").split(",") if r.strip()]
-    if refs:
-        return f"{watch.brand} {watch.model} {refs[0]}"
-    return f"{watch.brand} {watch.model}"
+    terms = [t.strip() for t in (watch.query_terms or "").split(",") if t.strip()]
+    queries = []
+    for ref in refs:
+        queries.append(f"{watch.brand} {ref}")
+    for term in terms:
+        queries.append(term)
+    if not queries:
+        queries.append(f"{watch.brand} {watch.model}")
+    seen: set[str] = set()
+    return [q for q in queries if not (q in seen or seen.add(q))]
 
 
 class EbayAdapter(BaseAdapter):
@@ -65,54 +74,58 @@ class EbayAdapter(BaseAdapter):
         except httpx.HTTPError as exc:
             raise AdapterError(f"eBay auth failed: {exc}") from exc
 
-        query = _build_query(watch)
-        params = {
-            "q": query,
-            "category_ids": "281",  # Watches category
-            "filter": "conditions:{USED}",
-            "limit": "50",
-            "sort": "newlyListed",
-        }
+        seen_urls: set[str] = set()
+        all_results: list[RawListing] = []
 
-        async with httpx.AsyncClient(timeout=20) as client:
-            try:
-                resp = await client.get(
-                    EBAY_BROWSE_URL,
-                    params=params,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
-                    },
+        for query in _build_queries(watch):
+            params = {
+                "q": query,
+                "category_ids": "281",  # Watches category
+                "filter": "conditions:{USED}",
+                "limit": "50",
+                "sort": "newlyListed",
+            }
+
+            async with httpx.AsyncClient(timeout=20) as client:
+                try:
+                    resp = await client.get(
+                        EBAY_BROWSE_URL,
+                        params=params,
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+                        },
+                    )
+                    resp.raise_for_status()
+                except httpx.HTTPError as exc:
+                    raise AdapterError(f"eBay Browse API failed: {exc}") from exc
+
+            for item in resp.json().get("itemSummaries", []):
+                url = item.get("itemWebUrl", "")
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                price_info = item.get("price", {})
+                try:
+                    price = float(price_info.get("value", 0))
+                except (TypeError, ValueError):
+                    price = None
+                all_results.append(
+                    RawListing(
+                        source=self.name,
+                        url=url,
+                        title=item.get("title", ""),
+                        price_amount=price,
+                        currency=price_info.get("currency"),
+                        condition=item.get("condition"),
+                        seller_location=item.get("itemLocation", {}).get("country"),
+                        image_url=(item.get("image") or {}).get("imageUrl"),
+                        extra_data={"itemId": item.get("itemId")},
+                    )
                 )
-                resp.raise_for_status()
-            except httpx.HTTPError as exc:
-                raise AdapterError(f"eBay Browse API failed: {exc}") from exc
 
-        data = resp.json()
-        results = []
-        for item in data.get("itemSummaries", []):
-            price_info = item.get("price", {})
-            try:
-                price = float(price_info.get("value", 0))
-            except (TypeError, ValueError):
-                price = None
-
-            results.append(
-                RawListing(
-                    source=self.name,
-                    url=item.get("itemWebUrl", ""),
-                    title=item.get("title", ""),
-                    price_amount=price,
-                    currency=price_info.get("currency"),
-                    condition=item.get("condition"),
-                    seller_location=item.get("itemLocation", {}).get("country"),
-                    image_url=(item.get("image") or {}).get("imageUrl"),
-                    extra_data={"itemId": item.get("itemId")},
-                )
-            )
-
-        logger.debug("%s: %d results for '%s'", self.name, len(results), query)
-        return results
+        logger.debug("%s: %d results for '%s'", self.name, len(all_results), watch.brand)
+        return all_results
 
     async def check_availability(self, url: str) -> AvailabilityResult:
         # eBay item URLs contain itemId; we rely on last_seen_at staleness in job_runner
