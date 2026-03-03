@@ -133,16 +133,16 @@ async def _process_adapter(
         if needs_llm:
             try:
                 confidence_score, confidence_rationale = await matcher.llm_verify(raw, watch)
-                if confidence_score < LLM_CONFIDENCE_THRESHOLD:
-                    logger.debug(
-                        "LLM rejected listing from %s: %s (score=%.2f)",
-                        raw.source, raw.title, confidence_score,
-                    )
-                    continue
             except Exception as exc:
                 logger.warning("LLM verify failed for '%s': %s", raw.title, exc)
                 confidence_score = 0.5
                 confidence_rationale = f"LLM error: {exc}"
+            if confidence_score < LLM_CONFIDENCE_THRESHOLD:
+                logger.debug(
+                    "LLM rejected listing from %s: %s (score=%.2f)",
+                    raw.source, raw.title, confidence_score,
+                )
+                continue
 
         # Fetch image for sources that don't provide one
         if not raw.image_url and raw.url:

@@ -17,10 +17,19 @@ class _RateLimiter:
 
     def __init__(self, calls_per_minute: int) -> None:
         self._interval = 60.0 / calls_per_minute
-        self._lock = asyncio.Lock()
         self._last_call: float = 0.0
+        self._lock: asyncio.Lock | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def acquire(self) -> None:
+        # Create the lock lazily against the running loop.  APScheduler calls
+        # asyncio.run() in a background thread, which creates a fresh event loop;
+        # a Lock created at module-load time is bound to the *original* loop and
+        # raises "bound to a different event loop" from any subsequent loop.
+        loop = asyncio.get_running_loop()
+        if self._lock is None or self._loop is not loop:
+            self._lock = asyncio.Lock()
+            self._loop = loop
         async with self._lock:
             now = time.monotonic()
             wait = self._interval - (now - self._last_call)
