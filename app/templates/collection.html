@@ -13,7 +13,7 @@
 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
   {% for watch, info in enriched %}
   {% set brand = watch.get('Brand') or watch.get('brand', '') %}
-  {% set model = watch.get('Model') or watch.get('model', '') %}
+  {% set model = watch.get('Name') or watch.get('Model') or watch.get('name') or watch.get('model', '') %}
   {% set reference = watch.get('Reference') or watch.get('reference', '') %}
   <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
 
@@ -37,7 +37,7 @@
       </div>
 
       {# Sheet metadata — all other columns as label/value rows #}
-      {% set skip_keys = ['Brand', 'brand', 'Model', 'model', 'Reference', 'reference'] %}
+      {% set skip_keys = ['Brand', 'brand', 'Name', 'name', 'Model', 'model', 'Reference', 'reference'] %}
       {% set has_meta = namespace(value=false) %}
       {% for k, v in watch.items() %}
         {% if k not in skip_keys and v %}{% set has_meta.value = true %}{% endif %}

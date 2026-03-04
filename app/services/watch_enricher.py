@@ -16,7 +16,7 @@ TTL = 3600  # 1 hour
 
 def _cache_key(watch: dict) -> str:
     brand = watch.get("Brand") or watch.get("brand", "")
-    model = watch.get("Model") or watch.get("model", "")
+    model = watch.get("Name") or watch.get("Model") or watch.get("name") or watch.get("model", "")
     ref = watch.get("Reference") or watch.get("reference", "")
     return f"{brand}|{model}|{ref}".lower()
 
@@ -29,9 +29,13 @@ async def enrich_watch(watch: dict) -> dict:
         return cached
 
     brand = watch.get("Brand") or watch.get("brand", "")
-    model = watch.get("Model") or watch.get("model", "")
+    model = watch.get("Name") or watch.get("Model") or watch.get("name") or watch.get("model", "")
     ref = watch.get("Reference") or watch.get("reference", "")
-    q = " ".join(filter(None, [brand, model, ref, "watch specifications"]))
+    search_kw = watch.get("search keywords") or watch.get("Search Keywords", "")
+    if search_kw:
+        q = f"{search_kw} watch specifications"
+    else:
+        q = " ".join(filter(None, [brand, model, ref, "watch specifications"]))
 
     if not settings.serper_api_key:
         logger.warning("SERPER_API_KEY not configured; skipping watch enrichment")

@@ -140,7 +140,7 @@ def get_owned_watches() -> list[dict]:
     result = (
         service.spreadsheets()
         .values()
-        .get(spreadsheetId=settings.google_sheet_id, range="Owned!A1:Z1000")
+        .get(spreadsheetId=settings.google_sheet_id, range="Owned!A2:Z1000")
         .execute()
     )
     rows = result.get("values", [])
