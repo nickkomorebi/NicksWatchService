@@ -61,6 +61,7 @@ async def index(request: Request, db: AsyncSession = Depends(get_db)):
             "last_run": last_run,
             "latest_run": latest_run,
             "run_token": settings.run_token,
+            "active_tab": "listings",
         },
     )
 
@@ -190,6 +191,25 @@ async def delete_comment(
     )
 
 
+@router.get("/collection", response_class=HTMLResponse)
+async def collection_page(request: Request):
+    from app.services.sheets import get_owned_watches
+    from app.services.watch_enricher import enrich_watches
+
+    watches = await asyncio.to_thread(get_owned_watches)
+    enriched = await enrich_watches(watches)
+
+    return templates.TemplateResponse(
+        "collection.html",
+        {
+            "request": request,
+            "enriched": enriched,
+            "run_token": settings.run_token,
+            "active_tab": "collection",
+        },
+    )
+
+
 @router.get("/runs", response_class=HTMLResponse)
 async def runs_page(request: Request, db: AsyncSession = Depends(get_db)):
     stmt = (
@@ -203,5 +223,5 @@ async def runs_page(request: Request, db: AsyncSession = Depends(get_db)):
 
     return templates.TemplateResponse(
         "runs.html",
-        {"request": request, "runs": runs, "run_token": settings.run_token},
+        {"request": request, "runs": runs, "run_token": settings.run_token, "active_tab": "runs"},
     )

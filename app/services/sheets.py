@@ -77,6 +77,8 @@ async def sync_watches(db: AsyncSession) -> int:
         "references_csv": "references_csv",
         "keywords": "query_terms",
         "query_terms": "query_terms",
+        "search keywords": "query_terms",  # sheet header alias
+        "search_keywords": "query_terms",  # underscore variant
         "notes": "query_terms",       # falls back; keywords wins if both present
         "required_keywords": "required_keywords",
         "forbidden_keywords": "forbidden_keywords",
@@ -123,3 +125,35 @@ async def sync_watches(db: AsyncSession) -> int:
     await db.commit()
     logger.info("Synced %d watches from Google Sheet", upserted)
     return upserted
+
+
+def get_owned_watches() -> list[dict]:
+    """Read the Owner tab from the sheet. Returns list of row dicts (all columns).
+
+    Synchronous — call via asyncio.to_thread() from async contexts.
+    """
+    if not settings.google_sheet_id:
+        logger.warning("GOOGLE_SHEET_ID not set; cannot read Owner tab")
+        return []
+
+    service = _build_service()
+    result = (
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=settings.google_sheet_id, range="Owner!A1:Z1000")
+        .execute()
+    )
+    rows = result.get("values", [])
+    if not rows:
+        return []
+
+    headers = [h.strip() for h in rows[0]]
+    out = []
+    for row in rows[1:]:
+        if not any(cell.strip() for cell in row):
+            continue
+        d = dict(zip(headers, row + [""] * (len(headers) - len(row))))
+        out.append(d)
+
+    logger.info("Loaded %d owned watches from Owner tab", len(out))
+    return out
