@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,7 +61,7 @@ async def index(request: Request, db: AsyncSession = Depends(get_db)):
             "last_run": last_run,
             "latest_run": latest_run,
             "run_token": settings.run_token,
-            "active_tab": "listings",
+            "active_tab": "watchlist",
         },
     )
 
@@ -191,6 +191,27 @@ async def delete_comment(
     )
 
 
+@router.get("/collection/image-proxy")
+async def collection_image_proxy(url: str, request: Request):
+    """Proxy an image URL server-side to bypass hotlink protection."""
+    import httpx
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True, headers=HEADERS) as client:
+            resp = await client.get(url)
+        if resp.status_code != 200:
+            return Response(status_code=404)
+        content_type = resp.headers.get("content-type", "image/jpeg")
+        return Response(content=resp.content, media_type=content_type, headers={
+            "Cache-Control": "public, max-age=86400",
+        })
+    except Exception:
+        return Response(status_code=404)
+
+
 @router.get("/collection", response_class=HTMLResponse)
 async def collection_page(request: Request):
     from app.services.sheets import get_owned_watches
@@ -208,6 +229,23 @@ async def collection_page(request: Request):
             "active_tab": "collection",
         },
     )
+
+
+@router.post("/runs/{run_id}/cancel", response_class=HTMLResponse)
+async def cancel_run(
+    run_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(run_token_required),
+):
+    stmt = select(Run).where(Run.id == run_id, Run.status == "running")
+    run = (await db.execute(stmt)).scalar_one_or_none()
+    if run:
+        run.status = "failed"
+        run.finished_at = datetime.now(timezone.utc)
+        run.error_summary = "Manually cancelled"
+        await db.commit()
+    return HTMLResponse("")
 
 
 @router.get("/runs", response_class=HTMLResponse)

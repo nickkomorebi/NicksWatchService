@@ -153,6 +153,9 @@ def get_owned_watches() -> list[dict]:
         if not any(cell.strip() for cell in row):
             continue
         d = dict(zip(headers, row + [""] * (len(headers) - len(row))))
+        brand_val = d.get("Brand") or d.get("brand") or ""
+        if not brand_val.strip():
+            continue
         out.append(d)
 
     logger.info("Loaded %d owned watches from Owner tab", len(out))

@@ -19,8 +19,9 @@
 
     {# Watch image #}
     <div class="overflow-hidden bg-gray-100">
+      {% set img_url = info.get('image_url') %}
       <img
-        src="{{ info.get('image_url') or '/static/img/no-image.svg' }}"
+        src="{% if img_url %}{% if img_url.startswith('/static/') %}{{ img_url }}{% else %}/collection/image-proxy?url={{ img_url | urlencode }}{% endif %}{% else %}/static/img/no-image.svg{% endif %}"
         onerror="this.src='/static/img/no-image.svg'"
         alt="{{ brand }} {{ model }}"
         class="w-full h-52 object-cover" />
@@ -36,26 +37,7 @@
         {% endif %}
       </div>
 
-      {# Sheet metadata — all other columns as label/value rows #}
-      {% set skip_keys = ['Brand', 'brand', 'Name', 'name', 'Model', 'model', 'Reference', 'reference'] %}
-      {% set has_meta = namespace(value=false) %}
-      {% for k, v in watch.items() %}
-        {% if k not in skip_keys and v %}{% set has_meta.value = true %}{% endif %}
-      {% endfor %}
-      {% if has_meta.value %}
-      <div class="flex flex-col gap-1">
-        {% for k, v in watch.items() %}
-        {% if k not in skip_keys and v %}
-        <div class="flex items-baseline gap-2 text-xs">
-          <span class="shrink-0 font-medium text-gray-500 w-24 truncate">{{ k }}</span>
-          <span class="text-gray-800">{{ v }}</span>
-        </div>
-        {% endif %}
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      {# Serper description #}
+{# Serper description #}
       {% if info.get('description') %}
       <p class="text-sm text-gray-600 leading-snug">{{ info.get('description') }}</p>
       {% endif %}
@@ -64,8 +46,10 @@
       {% if info.get('attributes') %}
       <dl class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs border-t border-gray-100 pt-2">
         {% for attr_k, attr_v in info.get('attributes').items() %}
+        {% if 'price' not in attr_k.lower() and 'value' not in attr_k.lower() %}
         <dt class="text-gray-500 font-medium">{{ attr_k }}</dt>
         <dd class="text-gray-700">{{ attr_v }}</dd>
+        {% endif %}
         {% endfor %}
       </dl>
       {% endif %}

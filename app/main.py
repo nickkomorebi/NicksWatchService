@@ -19,6 +19,22 @@ async def lifespan(app: FastAPI):
     logger.info("Starting NicksWatchService…")
     await create_tables()
 
+    # Mark any runs left in "running" state as failed — they were interrupted by a restart
+    from datetime import datetime, timezone
+    from sqlalchemy import select, update
+    from app.database import AsyncSessionLocal
+    from app.models import Run
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Run).where(Run.status == "running"))
+        orphaned = result.scalars().all()
+        for run in orphaned:
+            run.status = "failed"
+            run.finished_at = datetime.now(timezone.utc)
+            run.error_summary = "Interrupted by service restart"
+            logger.warning("Marked orphaned run id=%d as failed", run.id)
+        if orphaned:
+            await db.commit()
+
     from app.services.scheduler import start_scheduler, shutdown_scheduler
     start_scheduler()
 

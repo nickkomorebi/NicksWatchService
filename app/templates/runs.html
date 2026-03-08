@@ -20,6 +20,7 @@
         <th class="px-4 py-3 text-right font-semibold text-gray-600">Found</th>
         <th class="px-4 py-3 text-right font-semibold text-gray-600">New</th>
         <th class="px-4 py-3 text-left font-semibold text-gray-600">Errors</th>
+        <th class="px-4 py-3"></th>
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-100 bg-white">
@@ -58,6 +59,18 @@
               {% endfor %}
             </ul>
           </details>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3">
+          {% if run.status == "running" %}
+          <button
+            hx-post="/runs/{{ run.id }}/cancel"
+            hx-headers='{"X-Run-Token": "{{ run_token }}"}'
+            hx-confirm="Mark run {{ run.id }} as failed?"
+            hx-on::after-request="window.location.reload()"
+            class="text-xs text-red-600 hover:text-red-800 hover:underline">
+            Mark Failed
+          </button>
           {% endif %}
         </td>
       </tr>

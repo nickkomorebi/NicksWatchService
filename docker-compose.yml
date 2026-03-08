@@ -12,8 +12,9 @@ services:
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:
-      - ./data:/app/data          # SQLite DB persisted here
-      - ./secrets:/app/secrets    # GCP service account JSON
+      - ./data:/app/data                                          # SQLite DB + enrichment cache
+      - ./secrets:/app/secrets                                    # GCP service account JSON
+      - ./app/static/img/collection:/app/app/static/img/collection  # Persisted watch images
     env_file: .env
     restart: unless-stopped
     depends_on:
