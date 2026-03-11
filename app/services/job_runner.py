@@ -371,6 +371,11 @@ async def run_job(triggered_by: str = "scheduler", existing_run_id: int | None =
             run.watches_processed = len(watches)
             run.listings_found = total_found
             run.listings_new = total_new
+            run.llm_verify_calls = total_lv_calls
+            run.llm_verify_rejected = total_lv_rejected
+            run.img_verify_calls = total_iv_calls
+            run.img_verify_rejected = total_iv_rejected
+            run.llm_cost_usd = round(lv_cost + iv_cost, 6)
             await db.commit()
 
         logger.info(

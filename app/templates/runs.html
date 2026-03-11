@@ -19,6 +19,7 @@
         <th class="px-4 py-3 text-right font-semibold text-gray-600">Watches</th>
         <th class="px-4 py-3 text-right font-semibold text-gray-600">Found</th>
         <th class="px-4 py-3 text-right font-semibold text-gray-600">New</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-600">LLM Cost</th>
         <th class="px-4 py-3 text-left font-semibold text-gray-600">Errors</th>
         <th class="px-4 py-3"></th>
       </tr>
@@ -44,6 +45,13 @@
         <td class="px-4 py-3 text-right text-gray-700">{{ run.watches_processed }}</td>
         <td class="px-4 py-3 text-right text-gray-700">{{ run.listings_found }}</td>
         <td class="px-4 py-3 text-right font-semibold text-green-700">{{ run.listings_new }}</td>
+        <td class="px-4 py-3 text-right text-gray-500 text-xs">
+          {% if run.llm_cost_usd is not none %}
+          <span title="Listing verify: {{ run.llm_verify_calls }} calls, {{ run.llm_verify_rejected }} rejected&#10;Image verify: {{ run.img_verify_calls }} calls, {{ run.img_verify_rejected }} rejected">
+            ${{ "%.4f"|format(run.llm_cost_usd) }}
+          </span>
+          {% else %}—{% endif %}
+        </td>
         <td class="px-4 py-3">
           {% if run.error_summary %}
           <span class="text-red-600 text-xs">{{ run.error_summary[:80] }}…</span>

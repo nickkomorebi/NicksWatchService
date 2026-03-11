@@ -100,6 +100,11 @@ class Run(Base):
     listings_found: Mapped[int] = mapped_column(Integer, default=0)
     listings_new: Mapped[int] = mapped_column(Integer, default=0)
     triggered_by: Mapped[str | None] = mapped_column(Text)
+    llm_verify_calls: Mapped[int | None] = mapped_column(Integer)
+    llm_verify_rejected: Mapped[int | None] = mapped_column(Integer)
+    img_verify_calls: Mapped[int | None] = mapped_column(Integer)
+    img_verify_rejected: Mapped[int | None] = mapped_column(Integer)
+    llm_cost_usd: Mapped[float | None] = mapped_column(Numeric)
 
     source_errors: Mapped[list["RunSourceError"]] = relationship(
         "RunSourceError", back_populates="run", cascade="all, delete-orphan"
