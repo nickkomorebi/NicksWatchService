@@ -18,6 +18,14 @@ WATCH_CONCURRENCY = 3   # watches processed in parallel
 ADAPTER_CONCURRENCY = 4  # adapters per watch in parallel
 LLM_CONFIDENCE_THRESHOLD = 0.6  # listings below this are excluded
 
+# Estimated average tokens per call (used for cost logging only)
+_LV_INPUT_TOKENS = 300    # llm_verify: claude-sonnet-4-6
+_LV_OUTPUT_TOKENS = 50
+_IV_INPUT_TOKENS = 1500   # verify_watch_image: claude-haiku-4-5 (image tiles + prompt)
+_IV_OUTPUT_TOKENS = 3
+_LV_COST_PER_CALL = (_LV_INPUT_TOKENS * 3.00 + _LV_OUTPUT_TOKENS * 15.00) / 1_000_000   # ~$0.00165
+_IV_COST_PER_CALL = (_IV_INPUT_TOKENS * 0.80 + _IV_OUTPUT_TOKENS * 4.00) / 1_000_000    # ~$0.00121
+
 # Sources where titles can't be reliably parsed with English keyword matching —
 # every non-rejected result gets LLM verification regardless of is_match result.
 ALWAYS_VERIFY_SOURCES = {"mercari_jp", "yahoo_jp"}
@@ -98,11 +106,17 @@ async def _process_adapter(
     watch: Watch,
     run_id: int,
     run_seen_hashes: set[str],
-) -> tuple[int, int, list[str]]:
-    """Run one adapter for one watch. Returns (found, new, errors)."""
+) -> tuple[int, int, list[str], int, int, int, int]:
+    """Run one adapter for one watch.
+    Returns (found, new, errors, lv_calls, lv_rejected, iv_calls, iv_rejected).
+    """
     errors = []
     found = 0
     new = 0
+    lv_calls = 0      # llm_verify calls (claude-sonnet-4-6)
+    lv_rejected = 0   # listings dropped by llm_verify
+    iv_calls = 0      # verify_watch_image calls (claude-haiku-4-5)
+    iv_rejected = 0   # images dropped by verify_watch_image
 
     try:
         raw_listings: list[RawListing] = await adapter.search(watch)
@@ -110,12 +124,12 @@ async def _process_adapter(
         msg = str(exc)
         logger.warning("[%s][%s] AdapterError: %s", watch.brand, adapter.name, msg)
         errors.append(msg)
-        return found, new, errors
+        return found, new, errors, lv_calls, lv_rejected, iv_calls, iv_rejected
     except Exception as exc:
         msg = f"Unexpected error: {exc}"
         logger.exception("[%s][%s] %s", watch.brand, adapter.name, msg)
         errors.append(msg)
-        return found, new, errors
+        return found, new, errors, lv_calls, lv_rejected, iv_calls, iv_rejected
 
     # Each adapter gets its own session — concurrent adapters sharing one session
     # can corrupt it when commits interleave across await points.
@@ -133,6 +147,7 @@ async def _process_adapter(
 
             needs_llm = result == "ambiguous" or raw.source in ALWAYS_VERIFY_SOURCES
             if needs_llm:
+                lv_calls += 1
                 try:
                     confidence_score, confidence_rationale = await matcher.llm_verify(raw, watch)
                 except Exception as exc:
@@ -140,9 +155,10 @@ async def _process_adapter(
                     confidence_score = 0.5
                     confidence_rationale = f"LLM error: {exc}"
                 if confidence_score < LLM_CONFIDENCE_THRESHOLD:
-                    logger.debug(
-                        "LLM rejected listing from %s: %s (score=%.2f)",
-                        raw.source, raw.title, confidence_score,
+                    lv_rejected += 1
+                    logger.info(
+                        "LLM rejected [%s][%s]: %s (score=%.2f)",
+                        watch.brand, raw.source, raw.title, confidence_score,
                     )
                     continue
 
@@ -151,18 +167,23 @@ async def _process_adapter(
                 from app.services.image_fetcher import fetch_listing_image, verify_watch_image
                 candidate = await fetch_listing_image(raw.url)
                 if candidate:
+                    iv_calls += 1
                     if await verify_watch_image(candidate):
                         raw.image_url = candidate
                         logger.debug("Fetched image for %s: %s", raw.title, candidate)
                     else:
-                        logger.debug("Image failed watch check for %s", raw.title)
+                        iv_rejected += 1
+                        logger.info(
+                            "Image rejected [%s][%s]: %s",
+                            watch.brand, raw.source, raw.title,
+                        )
 
             found += 1
             is_new = await _upsert_listing(db, raw, watch, confidence_score, confidence_rationale, run_seen_hashes)
             if is_new:
                 new += 1
 
-    return found, new, errors
+    return found, new, errors, lv_calls, lv_rejected, iv_calls, iv_rejected
 
 
 async def _process_watch(
@@ -171,8 +192,10 @@ async def _process_watch(
     run_id: int,
     run_seen_hashes: set[str],
     db: AsyncSession,
-) -> tuple[int, int]:
-    """Process all adapters for one watch. Returns (total_found, total_new)."""
+) -> tuple[int, int, int, int, int, int]:
+    """Process all adapters for one watch.
+    Returns (total_found, total_new, lv_calls, lv_rejected, iv_calls, iv_rejected).
+    """
     sem = asyncio.Semaphore(ADAPTER_CONCURRENCY)
 
     async def run_with_sem(adapter):
@@ -183,6 +206,10 @@ async def _process_watch(
 
     total_found = 0
     total_new = 0
+    total_lv_calls = 0
+    total_lv_rejected = 0
+    total_iv_calls = 0
+    total_iv_rejected = 0
     for i, result in enumerate(results):
         if isinstance(result, Exception):
             logger.error("Adapter %s raised uncaught exception: %s", adapters[i].name, result)
@@ -196,9 +223,13 @@ async def _process_watch(
             await db.commit()
             continue
 
-        found, new, errors = result
+        found, new, errors, lv_calls, lv_rejected, iv_calls, iv_rejected = result
         total_found += found
         total_new += new
+        total_lv_calls += lv_calls
+        total_lv_rejected += lv_rejected
+        total_iv_calls += iv_calls
+        total_iv_rejected += iv_rejected
 
         for err_msg in errors:
             err = RunSourceError(
@@ -211,7 +242,7 @@ async def _process_watch(
         if errors:
             await db.commit()
 
-    return total_found, total_new
+    return total_found, total_new, total_lv_calls, total_lv_rejected, total_iv_calls, total_iv_rejected
 
 
 async def run_job(triggered_by: str = "scheduler", existing_run_id: int | None = None) -> int:
@@ -254,6 +285,10 @@ async def run_job(triggered_by: str = "scheduler", existing_run_id: int | None =
         run_seen_hashes: set[str] = set()
         total_found = 0
         total_new = 0
+        total_lv_calls = 0
+        total_lv_rejected = 0
+        total_iv_calls = 0
+        total_iv_rejected = 0
 
         sem = asyncio.Semaphore(WATCH_CONCURRENCY)
 
@@ -268,9 +303,25 @@ async def run_job(triggered_by: str = "scheduler", existing_run_id: int | None =
             if isinstance(r, Exception):
                 logger.error("Watch %s failed: %s", watches[i].brand, r)
             else:
-                f, n = r
+                f, n, lv_calls, lv_rejected, iv_calls, iv_rejected = r
                 total_found += f
                 total_new += n
+                total_lv_calls += lv_calls
+                total_lv_rejected += lv_rejected
+                total_iv_calls += iv_calls
+                total_iv_rejected += iv_rejected
+
+        # Log LLM usage and estimated cost for this run
+        lv_cost = total_lv_calls * _LV_COST_PER_CALL
+        iv_cost = total_iv_calls * _IV_COST_PER_CALL
+        logger.info(
+            "LLM usage — listing verify (sonnet): %d calls, %d rejected, est. $%.4f | "
+            "image verify (haiku): %d calls, %d rejected, est. $%.4f | "
+            "total est. $%.4f",
+            total_lv_calls, total_lv_rejected, lv_cost,
+            total_iv_calls, total_iv_rejected, iv_cost,
+            lv_cost + iv_cost,
+        )
 
         # Backfill images for active listings that still have none
         from app.services.image_fetcher import fetch_listing_image, verify_watch_image

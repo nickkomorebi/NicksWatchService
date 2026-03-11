@@ -35,13 +35,9 @@ async def lifespan(app: FastAPI):
         if orphaned:
             await db.commit()
 
-    from app.services.scheduler import start_scheduler, shutdown_scheduler
-    start_scheduler()
-
     yield
 
     logger.info("Shutting down…")
-    shutdown_scheduler()
 
 
 app = FastAPI(title="NicksWatchService", lifespan=lifespan)
