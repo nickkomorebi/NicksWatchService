@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.database import create_tables
+from app.database import run_migrations
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting NicksWatchService…")
-    await create_tables()
+    await run_migrations()
 
     # Mark any runs left in "running" state as failed — they were interrupted by a restart
     from datetime import datetime, timezone

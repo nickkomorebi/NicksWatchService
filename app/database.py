@@ -25,8 +25,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-async def create_tables() -> None:
-    """Create all tables (used for dev without Alembic)."""
-    async with engine.begin() as conn:
-        from app import models  # noqa: F401 — ensure models are imported
-        await conn.run_sync(Base.metadata.create_all)
+async def run_migrations() -> None:
+    """Run Alembic migrations to head on startup."""
+    import asyncio
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config("alembic.ini")
+    await asyncio.to_thread(command.upgrade, cfg, "head")
