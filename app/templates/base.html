@@ -17,7 +17,7 @@
   <nav class="bg-gray-900 text-white shadow">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-14">
       <a href="/" class="text-lg font-semibold tracking-tight shrink-0">⌚ NicksWatchService</a>
-      <div class="flex items-center h-full text-sm">
+      <div class="flex items-center h-full text-sm gap-2">
         <a href="/"
            class="px-4 h-full flex items-center border-b-2 transition-colors
                   {% if active_tab == 'watchlist' %}border-white text-white{% else %}border-transparent text-gray-400 hover:text-gray-200{% endif %}">
@@ -33,6 +33,23 @@
                   {% if active_tab == 'runs' %}border-white text-white{% else %}border-transparent text-gray-400 hover:text-gray-200{% endif %}">
           Run History
         </a>
+        <!-- App Switcher -->
+        <div id="nas" style="position:relative;display:inline-block;">
+          <button onclick="nasToggle(event)" title="Switch app" style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:6px;background:none;border:none;cursor:pointer;color:#9ca3af;transition:color .15s,background .15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='none'">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="5.5" height="5.5" rx="1"/><rect x="9.5" y="1" width="5.5" height="5.5" rx="1"/><rect x="1" y="9.5" width="5.5" height="5.5" rx="1"/><rect x="9.5" y="9.5" width="5.5" height="5.5" rx="1"/></svg>
+          </button>
+          <div id="nas-drop" style="display:none;position:absolute;right:0;top:calc(100% + 8px);background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:12px;z-index:1000;width:280px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              <a href="https://nickpegan.com" style="display:block;border-radius:8px;overflow:hidden;"><img src="/static/appicons/home.png" style="width:100%;height:auto;display:block;"></a>
+              <a href="https://todo.nickpegan.com" style="display:block;border-radius:8px;overflow:hidden;"><img src="/static/appicons/todo.png" style="width:100%;height:auto;display:block;"></a>
+              <a href="https://frm.nickpegan.com" style="display:block;border-radius:8px;overflow:hidden;"><img src="/static/appicons/frm.png" style="width:100%;height:auto;display:block;"></a>
+              <a href="https://wine.nickpegan.com" style="display:block;border-radius:8px;overflow:hidden;"><img src="/static/appicons/wine.png" style="width:100%;height:auto;display:block;"></a>
+              <a href="https://watches.nickpegan.com" style="display:block;border-radius:8px;overflow:hidden;outline:2.5px solid #2563eb;outline-offset:-2px;"><img src="/static/appicons/watches.png" style="width:100%;height:auto;display:block;"></a>
+              <a href="https://cuteshootergame.nickpegan.com" style="display:block;border-radius:8px;overflow:hidden;"><img src="/static/appicons/game.png" style="width:100%;height:auto;display:block;"></a>
+            </div>
+          </div>
+        </div>
+
         <button
           hx-post="/partials/run-trigger"
           hx-headers='{"X-Run-Token": "{{ run_token }}"}'
@@ -58,6 +75,17 @@
 
   <div id="toast" class="hidden fixed top-16 right-4 z-50 bg-amber-50 border border-amber-300 text-amber-800 text-sm px-4 py-3 rounded-lg shadow-lg max-w-xs"></div>
 
+  <script>
+    function nasToggle(e) {
+      e.stopPropagation();
+      const d = document.getElementById('nas-drop');
+      d.style.display = d.style.display === 'none' ? 'block' : 'none';
+    }
+    document.addEventListener('click', function(e) {
+      if (!document.getElementById('nas').contains(e.target))
+        document.getElementById('nas-drop').style.display = 'none';
+    });
+  </script>
   <script>
     const RUN_TOKEN = "{{ run_token }}";
     document.body.addEventListener('showToast', (e) => {
